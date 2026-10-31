@@ -167,6 +167,11 @@ kbd{font:600 10px var(--mono);border:1px solid currentColor;border-radius:4px;pa
 .task-row{display:flex;gap:10px;align-items:flex-start}
 .task-row svg{flex:none;width:20px;height:20px;color:var(--pollen);margin-top:2px}
 .task-row p{margin:0;font-size:15.5px;font-weight:600;line-height:1.5}
+.expect{margin:12px 0 0 30px}
+.expect .eyebrow{margin-bottom:6px}
+.expect pre{margin:0;background:var(--console);color:var(--console-ink);border-radius:10px;padding:10px 14px;font:13.5px/1.55 var(--mono);white-space:pre;overflow:auto;max-height:220px}
+.expect .note{font-size:12.5px;color:var(--muted);margin-top:6px}
+.expect .tbl-wrap{max-height:220px;overflow:auto;border-radius:10px}
 .task-row p code{font:13.5px var(--mono);background:var(--surface);padding:1px 6px;border-radius:5px}
 .intro{font-size:16px;line-height:1.7;margin:0 0 6px;max-width:62ch}
 .intro code,.step p code,.watch p code,.recap li code{font:13px var(--mono);background:var(--code-bg);padding:1px 5px;border-radius:5px}
@@ -390,6 +395,7 @@ dialog::backdrop{background:rgba(10,20,15,.45);backdrop-filter:blur(3px)}
         <div class="task-top"><span class="eyebrow" id="taskLabel">Your task</span><span class="eyebrow" id="taskState"></span></div>
         <div class="task-nav"><div class="ch-tabs" id="chTabs" role="tablist" aria-label="Challenges"></div><div class="tn-btns"><button class="btn tn" id="tnPrev" title="Previous challenge">← Prev</button><button class="btn tn" id="tnNext" title="Next challenge">Next →</button></div></div>
         <div class="task-row"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.4 6.6L21 9.3l-5.2 4.3L17.6 21 12 17.3 6.4 21l1.8-7.4L3 9.3l6.6-.7z"/></svg><p id="task"></p></div>
+        <div class="expect" id="expect"></div>
       </div>
       <div class="ed-head">
         <div class="file"><span class="dots"><i></i><i></i><i></i></span><span id="fname">main.py</span></div>
@@ -649,6 +655,10 @@ function renderLesson(){
   $('lessonState').textContent=isDone(track,index)?(state.own.includes(key())?'✓ Solved on your own':'✓ Complete'):'';
   $('lessonState').style.color='var(--ok)';
   $('title').textContent=l.title; $('intro').innerHTML=md(l.intro); $('task').innerHTML=md(task().task);
+  { const T=task(); const ex=T.expected; let h='';
+    if(track==='sql') h=`<div class="eyebrow">Your query should return exactly these rows</div><div class="tbl-wrap">${tableHTML(null,ex)}</div><div class="note">Column names can be anything unless the task names them. Rows can be in any order unless the task says "ordered by".</div>`;
+    else h=`<div class="eyebrow">Your output should look like this</div><pre>${esc(String(ex))}</pre><div class="note">${track==='r'?'R\'s [1] markers and quote marks are ignored. ':''}Any logic is fine. Only the printed result is checked, and small spacing or decimal differences are accepted.</div>`;
+    $('expect').innerHTML=h; }
   const nT=l.tasks.length, nS=l.tasks.filter((_,j)=>isSolved(track,index,j)).length;
   $('taskLabel').textContent=`Lesson ${index+1} · Challenge ${tix+1} of ${nT}`;
   $('taskState').textContent=isDone(track,index)?(nS===nT?'✓ All challenges solved':`✓ Lesson passed · ${nS}/${nT} solved`):`${nS}/${nT} solved`;
@@ -761,6 +771,10 @@ let warmT; function warmSoon(){ if(Engine.isReady(track)||Engine.isWarming(track
 const normalize=s=>String(s).replace(/\r/g,'').trim().replace(/\s+/g,' ');
 /* Lenient check: same answer, different layout. Any logic passes as long as the result is the same. */
 const canonNum=x=>{ const v=Number(x); if(!isFinite(v)) return x; return String(Math.round(v*1e6)/1e6) };
+function looseEq(a,b){ const A=looseText(a),B=looseText(b); if(A===B) return true;
+  const re=/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi; const na=A.match(re)||[], nb=B.match(re)||[];
+  if(na.length!==nb.length||A.replace(re,'#')!==B.replace(re,'#')) return false;
+  return na.every((x,k)=>Math.abs(+x-+nb[k])<=0.011+1e-9*Math.abs(+nb[k])) }
 const looseText=s=>normalize(s).replace(/[“”]/g,'"').replace(/'/g,'"')
   .replace(/\s*([\[\](){},:;=|])\s*/g,'$1')
   .replace(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi,m=>canonNum(m));
@@ -895,7 +909,7 @@ async function runCode(src,{example=false}={}){
   const j=tix; const l={expected:COURSES[t].lessons[i].tasks[j].expected};
   const ok=t==='sql'?JSON.stringify(r.rows)===JSON.stringify(l.expected):normalize(t==='r'?r.check:r.text)===normalize(l.expected);
   if(ok){ succeed(t,i,j,verdictHTML('good','Correct!','Your answer matches exactly. Any logic is fine, only the result is checked.')+printed); return }
-  const loose=t==='sql'?looseRows(r.rows,l.expected,COURSES[t].lessons[i].tasks[j].solution):looseText(t==='r'?r.check:r.text)===looseText(l.expected);
+  const loose=t==='sql'?looseRows(r.rows,l.expected,COURSES[t].lessons[i].tasks[j].solution):looseEq(t==='r'?r.check:r.text,l.expected);
   if(loose){ succeed(t,i,j,verdictHTML('good','Correct!',t==='sql'?'Your result has the right data. Small differences in row order or decimal places are fine.':'Your answer is right. The layout is slightly different from the model answer (spacing, quotes or decimal places), which is fine here.')+printed+`<div class="explain">For reference, the model output was:<pre class="out">${esc(t==='sql'?l.expected.map(x=>x.join(' | ')).join('\n'):String(l.expected))}</pre></div>`); return }
   setStatus('no','Wrong answer');
   let html;
